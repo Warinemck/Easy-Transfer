@@ -14,4 +14,5 @@
 * customtkinter
 
 # Languages
+* English
 * Spanish

@@ -7,6 +7,44 @@ from flask import Flask, request, render_template_string, send_from_directory, j
 import qrcode
 from PIL import Image
 
+LANG = {
+    'en': {
+        'window_title': 'Easy-Transfer',
+        'web_conn': 'Web Connection',
+        'curr_dir': 'Current Directory:\n',
+        'change_folder': 'Change Folder',
+        'history': 'History',
+        'web_title': 'Local Transfer',
+        'send_pc': 'Send to PC',
+        'sel_files': 'Select Files',
+        'waiting': 'Waiting for files...',
+        'dl_pc': 'Download from PC',
+        'empty_folder': 'The folder is empty.',
+        'files_queue': 'file(s) in queue...',
+        'all_done': 'All transfers completed.',
+        'sending': 'Sending: ',
+        'remaining': ' remaining)'
+    },
+    'es': {
+        'window_title': 'Easy-Transfer',
+        'web_conn': 'Conexión Web',
+        'curr_dir': 'Directorio Actual:\n',
+        'change_folder': 'Cambiar Carpeta',
+        'history': 'Historial',
+        'web_title': 'Transferencia Local',
+        'send_pc': 'Enviar a la PC',
+        'sel_files': 'Seleccionar Archivos',
+        'waiting': 'Esperando archivos...',
+        'dl_pc': 'Descargar desde la PC',
+        'empty_folder': 'La carpeta está vacía.',
+        'files_queue': 'archivo(s) en cola...',
+        'all_done': 'Todas las transferencias completadas.',
+        'sending': 'Enviando: ',
+        'remaining': ' restantes)'
+    }
+}
+CURRENT_LANG = 'en'  # Inglés por defecto
+
 # flask config
 app = Flask(__name__)
 SHARED_FOLDER = os.path.join(os.path.expanduser('~'), 'Downloads')
@@ -16,13 +54,16 @@ upload_counter = 0
 # web
 HTML_TEMPLATE = """
 <!doctype html>
-<html lang="es">
+<html lang="{{ current_lang }}">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Transferencia Local</title>
+  <title>{{ texts.web_title }}</title>
   <style>
     body { font-family: "Segoe UI", Roboto, sans-serif; margin: 0; padding: 20px; background: #121212; color: #e0e0e0; }
+    .lang-switch { text-align: right; margin-bottom: 15px; }
+    .lang-switch a { display: inline-block; padding: 5px 10px; color: #4da6ff; text-decoration: none; font-weight: bold; border-radius: 4px; }
+    .lang-switch a:hover { background: #2d2d2d; }
     .card { background: #1e1e1e; padding: 24px; border-radius: 12px; margin-bottom: 24px; border: 1px solid #2d2d2d; box-shadow: 0 4px 6px rgba(0,0,0,0.3); }
     h2 { margin-top: 0; font-size: 18px; font-weight: 600; color: #ffffff; border-bottom: 1px solid #2d2d2d; padding-bottom: 10px; }
     .file-input-wrapper { position: relative; overflow: hidden; display: block; width: 100%; margin-top: 20px; }
@@ -31,47 +72,58 @@ HTML_TEMPLATE = """
     input[type=file] { font-size: 100px; position: absolute; left: 0; top: 0; opacity: 0; cursor: pointer; height: 100%; width: 100%; }
     .status-text { font-size: 14px; color: #888; margin-top: 15px; text-align: center; }
     .file-list { margin-top: 15px; }
-    a { text-decoration: none; color: #4da6ff; display: block; padding: 12px 0; border-bottom: 1px solid #2d2d2d; transition: color 0.2s; }
-    a:hover { color: #80c2ff; }
-    a:last-child { border-bottom: none; }
+    a.file-link { text-decoration: none; color: #4da6ff; display: block; padding: 12px 0; border-bottom: 1px solid #2d2d2d; transition: color 0.2s; }
+    a.file-link:hover { color: #80c2ff; }
+    a.file-link:last-child { border-bottom: none; }
   </style>
 </head>
 <body>
+  <div class="lang-switch">
+      <a href="/?lang=en">EN</a> | <a href="/?lang=es">ES</a>
+  </div>
+
   <div class="card">
-    <h2>Enviar a la PC</h2>
+    <h2>{{ texts.send_pc }}</h2>
     <div class="file-input-wrapper">
-      <button class="btn">Seleccionar Archivos</button>
+      <button class="btn">{{ texts.sel_files }}</button>
       <input type="file" id="fileInput" multiple>
     </div>
-    <div id="status" class="status-text">Esperando archivos...</div>
+    <div id="status" class="status-text">{{ texts.waiting }}</div>
   </div>
   
   <div class="card">
-    <h2>Descargar desde la PC</h2>
+    <h2>{{ texts.dl_pc }}</h2>
     <div class="file-list">
       {% for f in files %}
-        <a href="/download/{{ f }}" download>{{ f }}</a>
+        <a href="/download/{{ f }}" class="file-link" download>{{ f }}</a>
       {% else %}
-        <p style="color: #666; font-size: 14px; text-align: center;">La carpeta esta vacia.</p>
+        <p style="color: #666; font-size: 14px; text-align: center;">{{ texts.empty_folder }}</p>
       {% endfor %}
     </div>
   </div>
 
   <script>
+    const i18n = {
+        queue: "{{ texts.files_queue }}",
+        done: "{{ texts.all_done }}",
+        sending: "{{ texts.sending }}",
+        remaining: "{{ texts.remaining }}"
+    };
+
     const queue = [];
     let isUploading = false;
     const statusDiv = document.getElementById('status');
 
     document.getElementById('fileInput').addEventListener('change', (e) => {
         for (let f of e.target.files) queue.push(f);
-        statusDiv.innerText = queue.length + " archivo(s) en cola...";
+        statusDiv.innerText = queue.length + " " + i18n.queue;
         processQueue();
     });
 
     async function processQueue() {
         if (isUploading || queue.length === 0) {
             if (queue.length === 0 && !isUploading) {
-                statusDiv.innerText = "Todas las transferencias completadas.";
+                statusDiv.innerText = i18n.done;
                 setTimeout(() => location.reload(), 2000);
             }
             return;
@@ -79,10 +131,9 @@ HTML_TEMPLATE = """
         
         isUploading = true;
         const file = queue.shift();
-        statusDiv.innerText = "Enviando: " + file.name + " (" + queue.length + " restantes)";
+        statusDiv.innerText = i18n.sending + file.name + " (" + queue.length + i18n.remaining;
         
         try {
-            // Iniciar transferencia
             let res = await fetch('/upload_init', {
                 method: 'POST',
                 headers: {'Content-Type': 'application/json'},
@@ -91,14 +142,12 @@ HTML_TEMPLATE = """
             let data = await res.json();
             let uploadId = data.upload_id;
 
-            // Enviar por fragmentos de 1MB para reportar progreso
             const chunkSize = 1024 * 1024; 
             for (let start = 0; start < file.size; start += chunkSize) {
                 let chunk = file.slice(start, start + chunkSize);
                 await fetch('/upload_chunk/' + uploadId, { method: 'POST', body: chunk });
             }
 
-            // Finalizar transferencia
             await fetch('/upload_finish/' + uploadId, { method: 'POST' });
         } catch (e) {
             console.error("Error subiendo " + file.name);
@@ -115,11 +164,16 @@ HTML_TEMPLATE = """
 # rutas
 @app.route('/')
 def index():
+    global CURRENT_LANG
+    req_lang = request.args.get('lang')
+    if req_lang in ['en', 'es']:
+        CURRENT_LANG = req_lang
+        
     try:
         files = [f for f in os.listdir(SHARED_FOLDER) if os.path.isfile(os.path.join(SHARED_FOLDER, f))]
     except:
         files = []
-    return render_template_string(HTML_TEMPLATE, files=files)
+    return render_template_string(HTML_TEMPLATE, files=files, texts=LANG[CURRENT_LANG], current_lang=CURRENT_LANG)
 
 @app.route('/upload_init', methods=['POST'])
 def upload_init():
@@ -180,7 +234,6 @@ def start_server():
     log.setLevel(logging.ERROR)
     app.run(host='0.0.0.0', port=5000, debug=False, use_reloader=False)
 
-
 # interfaz 
 ctk.set_appearance_mode("dark")
 ctk.set_default_color_theme("blue")
@@ -188,7 +241,8 @@ ctk.set_default_color_theme("blue")
 class App(ctk.CTk):
     def __init__(self):
         super().__init__()
-        self.title("Transferencia Local")
+        t = LANG[CURRENT_LANG]
+        self.title(t['window_title'])
         self.geometry("750x500")
         self.minsize(600, 400)
         self.ui_widgets = {}
@@ -199,9 +253,9 @@ class App(ctk.CTk):
         # panel lateral
         self.sidebar_frame = ctk.CTkFrame(self, width=220, corner_radius=0)
         self.sidebar_frame.grid(row=0, column=0, sticky="nsew")
-        self.sidebar_frame.grid_rowconfigure(4, weight=1)
+        self.sidebar_frame.grid_rowconfigure(6, weight=1)
         
-        self.logo_label = ctk.CTkLabel(self.sidebar_frame, text="Conexion Web", font=ctk.CTkFont(size=18, weight="bold"))
+        self.logo_label = ctk.CTkLabel(self.sidebar_frame, text=t['web_conn'], font=ctk.CTkFont(size=18, weight="bold"))
         self.logo_label.grid(row=0, column=0, padx=20, pady=(20, 10))
         
         # Generar QR
@@ -219,15 +273,20 @@ class App(ctk.CTk):
         self.url_label.grid(row=2, column=0, padx=20, pady=0)
         
         # Información de Directorio
-        self.lbl_folder = ctk.CTkLabel(self.sidebar_frame, text=f"Directorio Actual:\n{SHARED_FOLDER}", font=ctk.CTkFont(size=11), text_color="#aaaaaa", wraplength=180)
+        self.lbl_folder = ctk.CTkLabel(self.sidebar_frame, text=f"{t['curr_dir']}{SHARED_FOLDER}", font=ctk.CTkFont(size=11), text_color="#aaaaaa", wraplength=180)
         self.lbl_folder.grid(row=3, column=0, padx=20, pady=(20, 5))
-        self.btn_folder = ctk.CTkButton(self.sidebar_frame, text="Cambiar Carpeta", command=self.change_folder)
-        self.btn_folder.grid(row=5, column=0, padx=20, pady=20)
+        self.btn_folder = ctk.CTkButton(self.sidebar_frame, text=t['change_folder'], command=self.change_folder)
+        self.btn_folder.grid(row=4, column=0, padx=20, pady=10)
+        
+        # Selector de Idiomas
+        self.lang_switch = ctk.CTkSegmentedButton(self.sidebar_frame, values=["EN", "ES"], command=self.change_language)
+        self.lang_switch.grid(row=5, column=0, padx=20, pady=(10, 20))
+        self.lang_switch.set("EN" if CURRENT_LANG == 'en' else "ES")
         
         # progresos
         self.main_frame = ctk.CTkFrame(self, corner_radius=10, fg_color="transparent")
         self.main_frame.grid(row=0, column=1, sticky="nsew", padx=20, pady=20)
-        self.queue_label = ctk.CTkLabel(self.main_frame, text="Historial", font=ctk.CTkFont(size=20, weight="bold"))
+        self.queue_label = ctk.CTkLabel(self.main_frame, text=t['history'], font=ctk.CTkFont(size=20, weight="bold"))
         self.queue_label.pack(anchor="w", pady=(0, 15))
         self.scrollable_frame = ctk.CTkScrollableFrame(self.main_frame, corner_radius=10)
         self.scrollable_frame.pack(fill="both", expand=True)
@@ -238,12 +297,24 @@ class App(ctk.CTk):
         
         self.after(50, self.poll_transfers)
 
+    def change_language(self, choice):
+        global CURRENT_LANG
+        CURRENT_LANG = 'en' if choice == "EN" else 'es'
+        t = LANG[CURRENT_LANG]
+        
+        self.title(t['window_title'])
+        self.logo_label.configure(text=t['web_conn'])
+        self.lbl_folder.configure(text=f"{t['curr_dir']}{SHARED_FOLDER}")
+        self.btn_folder.configure(text=t['change_folder'])
+        self.queue_label.configure(text=t['history'])
+
     def change_folder(self):
         global SHARED_FOLDER
         new_folder = filedialog.askdirectory(initialdir=SHARED_FOLDER)
         if new_folder:
             SHARED_FOLDER = new_folder
-            self.lbl_folder.configure(text=f"Directorio Actual:\n{SHARED_FOLDER}")
+            t = LANG[CURRENT_LANG]
+            self.lbl_folder.configure(text=f"{t['curr_dir']}{SHARED_FOLDER}")
             
     def open_file(self, filepath):
         try:
